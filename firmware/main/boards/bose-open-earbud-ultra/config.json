@@ -1,0 +1,14 @@
+{
+    "manufacturer": "bose",
+    "name": "bose-open-earbud-ultra",
+    "version": "1.0.0",
+    "target": "esp32",
+    "builds": [
+        {
+            "name": "bose-open-earbud-ultra",
+            "sdkconfig_append": [
+
+            ]
+        }
+    ]
+}

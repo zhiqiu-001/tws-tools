@@ -1,0 +1,23 @@
+menu "Board Configuration"
+
+choice BOARD_TYPE_CHOICE
+    prompt "Board Type"
+    help
+        Select the board type for this project.
+    default BOARD_TYPE_BOSE_OPEN_EARBUD_ULTRA
+
+    # 对应文件夹名：bose-open-earbud-ultra
+    config BOARD_TYPE_BOSE_OPEN_EARBUD_ULTRA
+        bool "bose-open-earbud-ultra"
+        help
+            Bose Open Earbud Ultra TWS board with ESP32S3.
+
+    # 对应截图中的设备名：LE-Bose QC Earbuds → 文件夹/显示名：le-bose-qc-earbuds
+    config BOARD_TYPE_LE_BOSE_QC_EARBUDS
+        bool "le-bose-qc-earbuds"
+        help
+            LE-Bose QC Earbuds TWS board configuration.
+
+endchoice
+
+endmenu

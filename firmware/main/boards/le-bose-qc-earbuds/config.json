@@ -1,0 +1,14 @@
+{
+    "manufacturer": "bose",
+    "name": "le-bose-qc-earbuds",
+    "version": "1.0.0",
+    "target": "esp32",
+    "builds": [
+        {
+            "name": "le-bose-qc-earbuds",
+            "sdkconfig_append": [
+
+            ]
+        }
+    ]
+}

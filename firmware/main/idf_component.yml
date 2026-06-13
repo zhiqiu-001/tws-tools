@@ -1,0 +1,19 @@
+version: "1.0.0"
+description: tws-tools ESP32S3 BLE Multi-Connection Client
+url: https://github.com/zhiqiu-001/tws-tools.git
+repository: https://github.com/zhiqiu-001/tws-tools.git
+issues: https://github.com/zhiqiu-001/tws-tools/issues
+author:
+    name: zhiqiu-001
+    email: zhiqiu.001@example.com
+license: MIT
+licenses:
+    - MIT
+tags:
+    - esp32
+    - esp32s3
+    - ble
+    - tws
+    - bose
+dependencies:
+    idf: ">=5.0"
