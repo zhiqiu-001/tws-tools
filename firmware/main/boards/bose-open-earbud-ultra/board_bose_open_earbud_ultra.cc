@@ -1,35 +1,342 @@
+/**
+ * @file board_bose_open_earbud_ultra.cc
+ * @brief Bose Open Earbud Ultra 板级实现
+ */
+
 #include "board.h"
+#include "ble_manager.h"
+#include "spp_manager.h"
+#include "ble_uuid.h"
+
 #include <esp_log.h>
+#include <esp_gap_ble_api.h>
+#include <esp_gattc_api.h>
+#include <esp_spp_api.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <memory>
 #include <cstring>
 
 #define TAG "BoseOpenEarbudUltra"
 
-class BoseOpenEarbudUltra:public Board
-{
+// =====================================================================
+// BLE 管理器实现
+// =====================================================================
+
+class BoseBleManager : public BleManager {
 private:
-    /* data */
+    bool m_connected;
+    uint16_t m_gattcAppId;
+    uint16_t m_connId;
+    DataCallback m_dataCallback;
+    ConnectionCallback m_connectionCallback;
+
+    // GATT 事件回调（静态）
+    static void gattcEventHandler(esp_gattc_cb_event_t event,
+                                  esp_gatt_if_t gattc_if,
+                                  esp_ble_gattc_cb_param_t* param);
+
 public:
-    BoseOpenEarbudUltra() {
+    BoseBleManager() : m_connected(false), m_gattcAppId(0), m_connId(0) {}
+    
+    ~BoseBleManager() override = default;
+
+    bool initialize() override {
+        ESP_LOGI(TAG, "Initializing BLE manager...");
         
+        // 注册 GATT 客户端应用
+        esp_err_t ret = esp_ble_gattc_app_register(m_gattcAppId);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "GATT client register failed: %s", esp_err_to_name(ret));
+            return false;
+        }
+        
+        // 注册 GATT 事件回调
+        esp_ble_gattc_register_callback(gattcEventHandler);
+        
+        ESP_LOGI(TAG, "BLE manager initialized");
+        return true;
+    }
+
+    bool connect(const char* address) override {
+        ESP_LOGI(TAG, "BLE connecting...");
+        // TODO: 实现扫描和连接逻辑
+        m_connected = true;
+        if (m_connectionCallback) {
+            m_connectionCallback(true);
+        }
+        return true;
+    }
+
+    void disconnect() override {
+        ESP_LOGI(TAG, "BLE disconnecting");
+        if (m_connected) {
+            esp_ble_gattc_close(m_gattc_if, m_connId);
+        }
+        m_connected = false;
+        if (m_connectionCallback) {
+            m_connectionCallback(false);
+        }
+    }
+
+    bool isConnected() override { return m_connected; }
+    
+    bool discoverServices() override {
+        ESP_LOGI(TAG, "Discovering services...");
+        esp_ble_gattc_search_service(m_gattc_if, m_connId, nullptr);
+        return true;
+    }
+    
+    bool hasService(const char* serviceUUID) override {
+        // TODO: 检查服务是否存在
+        return false;
+    }
+
+    bool writeCharacteristic(const char* serviceUUID,
+                             const char* charUUID,
+                             const uint8_t* data,
+                             size_t length) override {
+        ESP_LOGI(TAG, "Writing to characteristic: %s", charUUID);
+        // TODO: 实现写入逻辑
+        return false;
+    }
+
+    bool readCharacteristic(const char* serviceUUID,
+                            const char* charUUID,
+                            uint8_t* buffer,
+                            size_t* length) override {
+        ESP_LOGI(TAG, "Reading from characteristic: %s", charUUID);
+        // TODO: 实现读取逻辑
+        return false;
+    }
+
+    bool enableNotify(const char* serviceUUID, const char* charUUID) override {
+        ESP_LOGI(TAG, "Enabling notify: %s", charUUID);
+        // TODO: 写入 CCCD 启用通知
+        return false;
+    }
+
+    bool disableNotify(const char* serviceUUID, const char* charUUID) override {
+        ESP_LOGI(TAG, "Disabling notify: %s", charUUID);
+        // TODO: 写入 CCCD 禁用通知
+        return false;
+    }
+
+    void setDataCallback(DataCallback callback) override {
+        m_dataCallback = callback;
+    }
+
+    void setConnectionCallback(ConnectionCallback callback) override {
+        m_connectionCallback = callback;
+    }
+};
+
+// GATT 事件回调实现
+void BoseBleManager::gattcEventHandler(esp_gattc_cb_event_t event,
+                                       esp_gatt_if_t gattc_if,
+                                       esp_ble_gattc_cb_param_t* param) {
+    switch (event) {
+        case ESP_GATTC_REG_EVT:
+            ESP_LOGI(TAG, "GATT client registered");
+            break;
+        case ESP_GATTC_OPEN_EVT:
+            ESP_LOGI(TAG, "BLE connection opened");
+            break;
+        case ESP_GATTC_CLOSE_EVT:
+            ESP_LOGI(TAG, "BLE connection closed");
+            break;
+        case ESP_GATTC_SEARCH_RES_EVT:
+            ESP_LOGI(TAG, "Service found: %s", param->search_res.srvc_id.uuid.uuid.str);
+            break;
+        case ESP_GATTC_READ_CHAR_EVT:
+            ESP_LOGI(TAG, "Characteristic read complete");
+            break;
+        case ESP_GATTC_WRITE_CHAR_EVT:
+            ESP_LOGI(TAG, "Characteristic write complete");
+            break;
+        case ESP_GATTC_NOTIFY_EVT:
+            ESP_LOGI(TAG, "Received notification");
+            break;
+        default:
+            break;
+    }
+}
+
+// =====================================================================
+// SPP 管理器实现
+// =====================================================================
+
+class BoseSppManager : public SppManager {
+private:
+    bool m_connected;
+    uint32_t m_sppHandle;
+    DataCallback m_dataCallback;
+    ConnectionCallback m_connectionCallback;
+
+    // SPP 事件回调（静态）
+    static void sppEventHandler(esp_spp_cb_event_t event, esp_spp_cb_param_t* param);
+
+public:
+    BoseSppManager() : m_connected(false), m_sppHandle(0) {}
+    
+    ~BoseSppManager() override = default;
+
+    bool initialize() override {
+        ESP_LOGI(TAG, "Initializing SPP manager...");
+        
+        // 初始化 SPP（回调模式）
+        esp_err_t ret = esp_spp_init(ESP_SPP_MODE_CB);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "SPP init failed: %s", esp_err_to_name(ret));
+            return false;
+        }
+        
+        // 注册 SPP 事件回调
+        esp_spp_register_callback(sppEventHandler);
+        
+        // 设置设备名称
+        esp_bt_gap_set_device_name("Bose Open Earbud Ultra");
+        
+        ESP_LOGI(TAG, "SPP manager initialized");
+        return true;
+    }
+
+    bool connect(const char* address) override {
+        ESP_LOGI(TAG, "SPP connecting...");
+        // TODO: 实现连接逻辑
+        m_connected = true;
+        if (m_connectionCallback) {
+            m_connectionCallback(true);
+        }
+        return true;
+    }
+
+    void disconnect() override {
+        ESP_LOGI(TAG, "SPP disconnecting");
+        if (m_connected && m_sppHandle != 0) {
+            esp_spp_close(m_sppHandle);
+        }
+        m_connected = false;
+        if (m_connectionCallback) {
+            m_connectionCallback(false);
+        }
+    }
+
+    bool isConnected() override { return m_connected; }
+
+    bool send(const uint8_t* data, size_t length) override {
+        if (!m_connected || m_sppHandle == 0) {
+            return false;
+        }
+        return esp_spp_write(m_sppHandle, length, data) == ESP_OK;
+    }
+
+    int receive(uint8_t* buffer, size_t maxLength) override {
+        // SPP 使用回调模式，数据通过回调接收
+        return -1;
+    }
+
+    void setDataCallback(DataCallback callback) override {
+        m_dataCallback = callback;
+    }
+
+    void setConnectionCallback(ConnectionCallback callback) override {
+        m_connectionCallback = callback;
+    }
+};
+
+// SPP 事件回调实现
+void BoseSppManager::sppEventHandler(esp_spp_cb_event_t event, esp_spp_cb_param_t* param) {
+    switch (event) {
+        case ESP_SPP_INIT_EVT:
+            ESP_LOGI(TAG, "SPP initialized");
+            break;
+        case ESP_SPP_OPEN_EVT:
+            ESP_LOGI(TAG, "SPP connection opened, handle=%d", param->open.handle);
+            break;
+        case ESP_SPP_CLOSE_EVT:
+            ESP_LOGI(TAG, "SPP connection closed");
+            break;
+        case ESP_SPP_DATA_IND_EVT:
+            ESP_LOGI(TAG, "SPP data received, len=%d", param->data_ind.len);
+            // 数据通过回调传递
+            break;
+        case ESP_SPP_WRITE_EVT:
+            ESP_LOGI(TAG, "SPP write complete");
+            break;
+        default:
+            break;
+    }
+}
+
+// =====================================================================
+// 板级实现
+// =====================================================================
+
+class BoseOpenEarbudUltra : public Board {
+private:
+    std::unique_ptr<BoseBleManager> m_bleManager;
+    std::unique_ptr<BoseSppManager> m_sppManager;
+
+public:
+    BoseOpenEarbudUltra() 
+        : m_bleManager(std::make_unique<BoseBleManager>())
+        , m_sppManager(std::make_unique<BoseSppManager>())
+    {}
+
+    void initialize() override {
+        ESP_LOGI(TAG, "Initializing Bose Open Earbud Ultra board...");
+        
+        // 1. 初始化蓝牙控制器（基类方法，只需调用一次）
+        if (!initializeBt()) {
+            ESP_LOGE(TAG, "Failed to initialize Bluetooth");
+            return;
+        }
+        
+        // 2. 初始化 BLE 管理器
+        if (m_bleManager && !m_bleManager->initialize()) {
+            ESP_LOGE(TAG, "Failed to initialize BLE manager");
+        }
+        
+        // 3. 初始化 SPP 管理器
+        if (m_sppManager && !m_sppManager->initialize()) {
+            ESP_LOGE(TAG, "Failed to initialize SPP manager");
+        }
+        
+        // 4. 启动 UART 命令任务
+        xTaskCreate([](void* param) {
+            static_cast<Board*>(param)->UartCommandTask();
+        }, "UartTask", 4096, this, tskIDLE_PRIORITY + 1, nullptr);
+        
+        ESP_LOGI(TAG, "Board initialized successfully");
+    }
+
+    BleManager* getBleManager() override {
+        return m_bleManager.get();
+    }
+
+    SppManager* getSppManager() override {
+        return m_sppManager.get();
     }
 
 protected:
-    /**
-     * @brief 重写命令处理
-     */
     void handleCommand(const char* command) override {
-        ESP_LOGI(TAG, "Bose command received: %s", command);
+        ESP_LOGI(TAG, "Command received: %s", command);
         
         if (strcmp(command, "status") == 0) {
-            // 处理状态查询命令
             ESP_LOGI(TAG, "Device status: OK");
         } else if (strcmp(command, "reset") == 0) {
-            // 处理复位命令
             ESP_LOGI(TAG, "Resetting device...");
+        } else if (strcmp(command, "ble_connect") == 0) {
+            if (m_bleManager) m_bleManager->connect();
+        } else if (strcmp(command, "ble_disconnect") == 0) {
+            if (m_bleManager) m_bleManager->disconnect();
+        } else if (strcmp(command, "spp_connect") == 0) {
+            if (m_sppManager) m_sppManager->connect();
+        } else if (strcmp(command, "spp_disconnect") == 0) {
+            if (m_sppManager) m_sppManager->disconnect();
         }
-        // 添加更多命令...
     }
 };
 
 DECLARE_BOARD(BoseOpenEarbudUltra);
-
