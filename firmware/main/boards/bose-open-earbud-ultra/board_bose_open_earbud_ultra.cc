@@ -16,6 +16,7 @@
 #include <freertos/task.h>
 #include <memory>
 #include <cstring>
+#include <inttypes.h>
 
 #define TAG "BoseOpenEarbudUltra"
 
@@ -30,6 +31,7 @@ private:
     uint16_t m_connId;
     DataCallback m_dataCallback;
     ConnectionCallback m_connectionCallback;
+    static esp_gatt_if_t s_gattc_if;
 
     // GATT 事件回调（静态）
     static void gattcEventHandler(esp_gattc_cb_event_t event,
@@ -58,7 +60,7 @@ public:
         return true;
     }
 
-    bool connect(const char* address) override {
+    bool connect(const char* address = nullptr) override {
         ESP_LOGI(TAG, "BLE connecting...");
         // TODO: 实现扫描和连接逻辑
         m_connected = true;
@@ -71,7 +73,7 @@ public:
     void disconnect() override {
         ESP_LOGI(TAG, "BLE disconnecting");
         if (m_connected) {
-            esp_ble_gattc_close(m_gattc_if, m_connId);
+            esp_ble_gattc_close(s_gattc_if, m_connId);
         }
         m_connected = false;
         if (m_connectionCallback) {
@@ -83,7 +85,7 @@ public:
     
     bool discoverServices() override {
         ESP_LOGI(TAG, "Discovering services...");
-        esp_ble_gattc_search_service(m_gattc_if, m_connId, nullptr);
+        esp_ble_gattc_search_service(s_gattc_if, m_connId, nullptr);
         return true;
     }
     
@@ -131,6 +133,9 @@ public:
     }
 };
 
+// 静态成员定义
+esp_gatt_if_t BoseBleManager::s_gattc_if = 0;
+
 // GATT 事件回调实现
 void BoseBleManager::gattcEventHandler(esp_gattc_cb_event_t event,
                                        esp_gatt_if_t gattc_if,
@@ -138,6 +143,7 @@ void BoseBleManager::gattcEventHandler(esp_gattc_cb_event_t event,
     switch (event) {
         case ESP_GATTC_REG_EVT:
             ESP_LOGI(TAG, "GATT client registered");
+            s_gattc_if = gattc_if;
             break;
         case ESP_GATTC_OPEN_EVT:
             ESP_LOGI(TAG, "BLE connection opened");
@@ -145,9 +151,21 @@ void BoseBleManager::gattcEventHandler(esp_gattc_cb_event_t event,
         case ESP_GATTC_CLOSE_EVT:
             ESP_LOGI(TAG, "BLE connection closed");
             break;
-        case ESP_GATTC_SEARCH_RES_EVT:
-            ESP_LOGI(TAG, "Service found: %s", param->search_res.srvc_id.uuid.uuid.str);
+        case ESP_GATTC_SEARCH_RES_EVT: {
+            esp_bt_uuid_t* uuid = &param->search_res.srvc_id.uuid;
+            if (uuid->len == ESP_UUID_LEN_16) {
+                ESP_LOGI(TAG, "Service found: UUID16: 0x%04x", uuid->uuid.uuid16);
+            } else if (uuid->len == ESP_UUID_LEN_32) {
+                ESP_LOGI(TAG, "Service found: UUID32: 0x%08" PRIx32, uuid->uuid.uuid32);
+            } else if (uuid->len == ESP_UUID_LEN_128) {
+                ESP_LOGI(TAG, "Service found: UUID128: %02x%02x%02x%02x-%02x%02x%02x%02x-%02x%02x%02x%02x-%02x%02x%02x%02x",
+                         uuid->uuid.uuid128[0], uuid->uuid.uuid128[1], uuid->uuid.uuid128[2], uuid->uuid.uuid128[3],
+                         uuid->uuid.uuid128[4], uuid->uuid.uuid128[5], uuid->uuid.uuid128[6], uuid->uuid.uuid128[7],
+                         uuid->uuid.uuid128[8], uuid->uuid.uuid128[9], uuid->uuid.uuid128[10], uuid->uuid.uuid128[11],
+                         uuid->uuid.uuid128[12], uuid->uuid.uuid128[13], uuid->uuid.uuid128[14], uuid->uuid.uuid128[15]);
+            }
             break;
+        }
         case ESP_GATTC_READ_CHAR_EVT:
             ESP_LOGI(TAG, "Characteristic read complete");
             break;
@@ -185,7 +203,12 @@ public:
         ESP_LOGI(TAG, "Initializing SPP manager...");
         
         // 初始化 SPP（回调模式）
-        esp_err_t ret = esp_spp_init(ESP_SPP_MODE_CB);
+        esp_spp_cfg_t cfg = {
+            .mode = ESP_SPP_MODE_CB,
+            .enable_l2cap_ertm = true,
+            .tx_buffer_size = 0,
+        };
+        esp_err_t ret = esp_spp_enhanced_init(&cfg);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "SPP init failed: %s", esp_err_to_name(ret));
             return false;
@@ -195,13 +218,13 @@ public:
         esp_spp_register_callback(sppEventHandler);
         
         // 设置设备名称
-        esp_bt_gap_set_device_name("Bose Open Earbud Ultra");
+        esp_ble_gap_set_device_name("Bose Open Earbud Ultra");
         
         ESP_LOGI(TAG, "SPP manager initialized");
         return true;
     }
 
-    bool connect(const char* address) override {
+    bool connect(const char* address = nullptr) override {
         ESP_LOGI(TAG, "SPP connecting...");
         // TODO: 实现连接逻辑
         m_connected = true;
@@ -214,7 +237,7 @@ public:
     void disconnect() override {
         ESP_LOGI(TAG, "SPP disconnecting");
         if (m_connected && m_sppHandle != 0) {
-            esp_spp_close(m_sppHandle);
+            esp_spp_disconnect(m_sppHandle);
         }
         m_connected = false;
         if (m_connectionCallback) {
@@ -228,7 +251,7 @@ public:
         if (!m_connected || m_sppHandle == 0) {
             return false;
         }
-        return esp_spp_write(m_sppHandle, length, data) == ESP_OK;
+        return esp_spp_write(m_sppHandle, length, const_cast<uint8_t*>(data)) == ESP_OK;
     }
 
     int receive(uint8_t* buffer, size_t maxLength) override {
@@ -252,7 +275,7 @@ void BoseSppManager::sppEventHandler(esp_spp_cb_event_t event, esp_spp_cb_param_
             ESP_LOGI(TAG, "SPP initialized");
             break;
         case ESP_SPP_OPEN_EVT:
-            ESP_LOGI(TAG, "SPP connection opened, handle=%d", param->open.handle);
+            ESP_LOGI(TAG, "SPP connection opened, handle=%" PRIu32, param->open.handle);
             break;
         case ESP_SPP_CLOSE_EVT:
             ESP_LOGI(TAG, "SPP connection closed");
@@ -273,13 +296,15 @@ void BoseSppManager::sppEventHandler(esp_spp_cb_event_t event, esp_spp_cb_param_
 // 板级实现
 // =====================================================================
 
-class BoseOpenEarbudUltra : public Board {
+class BoseOpenEarbudUltraBoard : public Board {
 private:
     std::unique_ptr<BoseBleManager> m_bleManager;
     std::unique_ptr<BoseSppManager> m_sppManager;
 
+    
+
 public:
-    BoseOpenEarbudUltra() 
+    BoseOpenEarbudUltraBoard() 
         : m_bleManager(std::make_unique<BoseBleManager>())
         , m_sppManager(std::make_unique<BoseSppManager>())
     {}
@@ -339,4 +364,4 @@ protected:
     }
 };
 
-DECLARE_BOARD(BoseOpenEarbudUltra);
+DECLARE_BOARD(BoseOpenEarbudUltraBoard);

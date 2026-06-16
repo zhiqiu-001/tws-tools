@@ -128,4 +128,8 @@ public:
      */
     using ConnectionCallback = std::function<void(bool connected)>;
     virtual void setConnectionCallback(ConnectionCallback callback) = 0;
+
+protected:
+    uint32_t m_gattc_if;
+
 };

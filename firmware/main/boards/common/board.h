@@ -18,6 +18,8 @@
 #define UART_BUFFER_SIZE 256
 #define UART_BAUD_RATE 115200
 
+#define MAX_BLE_DEVICES 2
+
 // 前向声明
 class BleManager;
 class SppManager;

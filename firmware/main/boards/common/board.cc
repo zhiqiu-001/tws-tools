@@ -34,22 +34,32 @@ bool Board::initializeBt() {
         ESP_LOGE(TAG, "Bluetooth controller init failed: %s", esp_err_to_name(ret));
         return false;
     }
+    ESP_LOGI(TAG, "Bluetooth controller init succeeded");
 
-    // 2. 启用蓝牙控制器（双模：BLE + 经典蓝牙）
+    // 2·. 启用蓝牙控制器（双模：BLE + 经典蓝牙）
     ret = esp_bt_controller_enable(ESP_BT_MODE_BTDM);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Bluetooth controller enable failed: %s", esp_err_to_name(ret));
-        return false;
+        // 尝试单独启用 BLE 模式
+        ESP_LOGI(TAG, "Trying BLE-only mode...");
+        ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "BLE-only mode also failed: %s", esp_err_to_name(ret));
+            return false;
+        }
+        ESP_LOGW(TAG, "Enabled BLE-only mode (Classic BT disabled)");
+    } else {
+        ESP_LOGI(TAG, "Bluetooth controller enabled (Dual Mode)");
     }
 
-    // 3. 初始化 Bluedroid 协议栈
+    // 3·. 初始化 Bluedroid 协议栈
     ret = esp_bluedroid_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Bluedroid init failed: %s", esp_err_to_name(ret));
         return false;
     }
 
-    // 4. 启用 Bluedroid
+    // 4·. 启用 Bluedroid
     ret = esp_bluedroid_enable();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Bluedroid enable failed: %s", esp_err_to_name(ret));
